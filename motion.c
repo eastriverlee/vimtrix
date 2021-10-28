@@ -12,86 +12,104 @@ int isother(int c)
 
 bool forward()
 {
-	if (cursor.x == end.x && cursor.y == end.y)
-		return (false);
 	cursor.x++;
+	if (end.x < cursor.x && cursor.y == end.y)
+		return (false);
 	if (end.x < cursor.x && cursor.y <= end.y)
 	{
-		cursor.x = 0;
 		cursor.y++;
+		cursor.x = LEFT;
 	}
 	return (cursor.y <= end.y);
 }
 
 bool backward()
 {
-	if (!cursor.x && !cursor.y)
-		return (false);
 	cursor.x--;
-	if (cursor.x < 0 && 0 <= cursor.y)
+	if (cursor.x < LEFT && cursor.y == TOP)
+		return (false);
+	if (cursor.x < LEFT && TOP <= cursor.y)
 	{
-		cursor.x = end.x;
 		cursor.y--;
+		cursor.x = end.x;
 	}
-	return (0 <= cursor.y);
+	return (TOP <= cursor.y);
 }
 
 void skip_spaces(bool (*skip)(void))
 {
 	while (isspace(cell[cursor.y][cursor.x]) && skip())
 		continue;
-	cursor.y = clamp(0, cursor.y, end.y);
+	cursor.y = clamp(TOP, cursor.y, end.y);
 }
 
-void word()
+void word(short count)
 {
 	const position original = cursor;
 	int (*isskippable)(int);
 
-	isskippable = isalnum_(cell[cursor.y][cursor.x]) ? isalnum_ : isother;
-	while (isskippable(cell[cursor.y][cursor.x]) && forward())
-		continue;
-	skip_spaces(forward);
-	play(original.x != cursor.x || original.y != cursor.y ? JUMP : BLOCK);
+	do
+	{
+		isskippable = isalnum_(cell[cursor.y][cursor.x]) ? isalnum_ : isother;
+		while (isskippable(cell[cursor.y][cursor.x]) && forward())
+			continue;
+		skip_spaces(forward);
+	}
+	while (0 < --count);
+	cursor.x = clamp(LEFT, cursor.x, end.x);
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 	render();
 }
 
-void WORD()
+void WORD(short count)
 {
 	const position original = cursor;
 
-	while (!isspace(cell[cursor.y][cursor.x]) && forward())
-		continue;
-	skip_spaces(forward);
-	play(original.x != cursor.x || original.y != cursor.y ? JUMP : BLOCK);
+	do
+	{
+		while (!isspace(cell[cursor.y][cursor.x]) && forward())
+			continue;
+		skip_spaces(forward);
+	}
+	while (0 < --count);
+	cursor.x = clamp(LEFT, cursor.x, end.x);
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 	render();
 }
 
-void back()
+void back(short count)
 {
 	const position original = cursor;
 	int (*isskippable)(int);
 
-	cursor.x--;
-	skip_spaces(backward);
-	isskippable = isalnum_(cell[cursor.y][cursor.x]) ? isalnum_ : isother;
-	while (0 < cursor.x && isskippable(cell[cursor.y][cursor.x]) && backward())
-		continue;
-	cursor.x++;
-	play(original.x != cursor.x || original.y != cursor.y ? JUMP : BLOCK);
+	do if (backward())
+	{
+		skip_spaces(backward);
+		isskippable = isalnum_(cell[cursor.y][cursor.x]) ? isalnum_ : isother;
+		while (LEFT <= cursor.x && isskippable(cell[cursor.y][cursor.x]) && backward())
+			continue;
+		forward();
+	}
+	while (0 < --count);
+	cursor.x = clamp(LEFT, cursor.x, end.x);
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 	render();
 }
 
-void BACK()
+void BACK(short count)
 {
 	const position original = cursor;
 
-	cursor.x--;
-	skip_spaces(backward);
-	while (0 < cursor.x && !isspace(cell[cursor.y][cursor.x]) && backward())
-		continue;
-	cursor.x++;
-	play(original.x != cursor.x || original.y != cursor.y ? JUMP : BLOCK);
+	do if (backward())
+	{
+		skip_spaces(backward);
+		while (LEFT <= cursor.x && !isspace(cell[cursor.y][cursor.x]) && backward())
+			continue;
+		forward();
+	}
+	while (0 < --count);
+	cursor.x = clamp(LEFT, cursor.x, end.x);
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 	render();
 }
 
@@ -105,8 +123,9 @@ char pair_of(char bracket)
 		case ']': return ('[');
 		case '(': return (')');
 		case ')': return ('(');
-		defalt: return (0);
+		defalt: break;
 	}
+	return (0);
 }
 
 void match_pair()
@@ -126,13 +145,13 @@ void match_pair()
 	}
 	if (searched)
 		render();
-	else
-		cursor = original;
+	else cursor = original;
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 }
 
 void first_non_space()
 {
-	cursor.x = 0;
+	cursor.x = LEFT;
 	skip_spaces(forward);
 	render();
 }
@@ -152,34 +171,31 @@ void move(short x, short y, bool relative)
 		if (y > STAY) cursor.y = y;
 		if (x == START)
 		{
-			cursor.x = 0;
+			cursor.x = LEFT;
 			while (isspace(cell[cursor.y][cursor.x]))
 				cursor.x++;
 		}
 	}
-	cursor.x = clamp(0, cursor.x, end.x);
-	cursor.y = clamp(0, cursor.y, end.y);
-	if (original.x != cursor.x || original.y != cursor.y)
-		play(relative ? MOVE : JUMP);
-	else
-		play(BLOCK);
+	cursor.x = clamp(LEFT, cursor.x, end.x);
+	cursor.y = clamp(TOP, cursor.y, end.y);
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 	render();
 }
 
 void find(int letter, bool after)
 {
+	position original = cursor;
 	position search = cursor;
 	bool found = false;
 
 	if (after)
-		while (!found && ++search.x <= end.x)
-			found = letter == cell[search.y][search.x];
+		while (!found && ++cursor.x <= end.x)
+			found = letter == cell[cursor.y][cursor.x];
 	else
-		while (!found && 0 <= --search.x)
-			found = letter == cell[search.y][search.x];
+		while (!found && LEFT <= --cursor.x)
+			found = letter == cell[cursor.y][cursor.x];
 	if (found)
-	{
-		cursor = search;
 		render();
-	}
+	else cursor = original;
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 }

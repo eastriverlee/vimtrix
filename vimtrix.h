@@ -17,6 +17,8 @@
 #define BEFORE false
 #define STAY -1
 #define START -2
+#define LEFT 3
+#define TOP 0
 
 #define SOUND_COUNT 7
 #define BLOCK 0 
@@ -26,6 +28,9 @@
 #define JUMP 4
 #define MOVE 5
 #define PICKUP 6
+
+#define MOVED (original.x != cursor.x || original.y != cursor.y)
+#define JUMPED (abs(original.x - cursor.x) + abs(original.y - cursor.y) > 1)
 
 typedef struct position {
 	short x;
@@ -62,10 +67,10 @@ int min(int a, int b);
 int max(int a, int b);
 int clamp(int minimum, int n, int maximum);
 void play(char sound);
-void word();
-void WORD();
-void back();
-void BACK();
+void word(short count);
+void WORD(short count);
+void back(short count);
+void BACK(short count);
 void move(short x, short y, bool relative);
 void find(int letter, bool after);
 void render();
