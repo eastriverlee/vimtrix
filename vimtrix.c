@@ -1,175 +1,200 @@
-#include <unistd.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <sys/ioctl.h>
-#include <termios.h>
+#include "vimtrix.h"
 
-typedef struct dimension
-{
-	int width;
-	int height;
-} dimension;
+const int padding = 10;
+const int width = 800;
+const int height = 800;
 
-typedef struct position
-{
-	int x;
-	int y;
-} position;
+SDL_Event event;
+SDL_Window *window;
+SDL_Surface *screen;
+SDL_Renderer *renderer;
 
-typedef struct letter
-{
-	int x;
-	int y;
-	char character;
-	bool reversed;
-} letter;
+TTF_Font *font;
+SDL_Color white = {255,255,255};
+SDL_Color blue = {200,220,255};
+SDL_Color black = {0,0,0};
+SDL_Surface *letter[128];
+SDL_Surface *letter_blue[128];
+SDL_Surface *inverted[128];
 
-typedef letter ** grid;
-
-grid screen;
+char cell[256][256];
 position cursor;
-dimension size;
+position end;
 
-void measure(dimension *size)
+void fill()
 {
-	struct winsize window;
+	const int x_lim = width - padding;
+	const int y_lim = height - padding;
+	const int x_unit = letter[' ']->w;
+	const int y_unit = letter[' ']->h;
+	SDL_Rect origin = {padding, padding};
+	short x, y, line;
+	char index;
+	bool selected;
 
-	ioctl(STDOUT_FILENO, TIOCGWINSZ, &window);
-	size->height = window.ws_row;
-	size->width = window.ws_col;
-}
-
-#define ECHOFLAGS (ECHO | ECHOE | ECHOK | ECHONL)
-void setup(grid *screen, dimension size)
-{
-	static struct termios terminal;
-
-	tcgetattr(STDOUT_FILENO, &terminal);
-	terminal.c_lflag &= ~ICANON;
-	terminal.c_lflag &= ~ECHOFLAGS;
-	tcsetattr(STDOUT_FILENO, TCSANOW, &terminal);
-	*screen = malloc(sizeof(letter *) * size.height);
-	for (int i = 0; i < size.height; i++)
+	for (y = 0; origin.y < y_lim; origin.y += y_unit, y++)
 	{
-		(*screen)[i] = malloc(sizeof(letter) * size.width);
-		for (int j = 0; j < size.width; j++)
+		line = y + 1;
+		for (x = 0, origin.x = padding; origin.x < x_lim; origin.x += x_unit, x++)
 		{
-			//(*screen)[i][j].character = rand() % 96 + 31;
-			(*screen)[i][j].character = j % 2 ? 'a' : ' ';
-			(*screen)[i][j].reversed = false;
+			switch (x)
+			{
+				case 0:
+					cell[y][x] = line < 10 ? ' ' : line/10 + '0'; break;
+				case 1:
+					cell[y][x] = line%10 + '0'; break;
+				case 2:
+					cell[y][x] = ' '; break;
+				default:
+					cell[y][x] = max(32, rand() % 127);
+			}
 		}
+		cell[y][x] = 0;
 	}
+	end.x = --x;
+	end.y = --y;
 }
 
-int min(int a, int b)
+void render()
 {
-	return (a < b ? a : b);
+	const int x_unit = letter[' ']->w;
+	const int y_unit = letter[' ']->h;
+	SDL_Rect origin = {padding, padding};
+	short x, y;
+	char index;
+	bool selected;
+
+	for (y = 0; y <= end.y; origin.y += y_unit, y++)
+		for (x = 0, origin.x = padding; x <= end.x; origin.x += x_unit, x++)
+		{
+			selected = cursor.x == x && cursor.y == y;
+			index = cell[y][x];
+			if (x < 3)
+				SDL_BlitSurface(selected ? inverted[index] : letter[index], NULL, screen, &origin);
+			else
+				SDL_BlitSurface(selected ? inverted[index] : letter_blue[index], NULL, screen, &origin);
+		}
+	SDL_UpdateWindowSurface(window);
 }
 
-int max(int a, int b)
+#define DONE previous_key = 0; break
+void handle_key_input(SDL_Event *event)
 {
-	return (a > b ? a : b);
-}
+	static int previous_key = 0;
+	const int key = *event->text.text;
+	static short number = 0;
 
-int clamp(int n, int minimum, int maximum)
-{
-	return (max(min(maximum, n), minimum));
-}
-
-#define NONE "\033[0m"
-#define REVERSED "\033[7m"
-
-void print_letter(letter letter)
-{
-	printf("%s%c%s", letter.reversed ? REVERSED : "", letter.character, NONE);
-}
-
-void move(int x, int y)
-{
-	x = clamp(x, 0, size.width - 1);
-	y = clamp(y, 0, size.height - 1);
-	printf("\033[%d;%dH", y + 1, x + 1);
-	cursor.x = x;
-	cursor.y = y;
-}
-
-void render(grid screen, dimension size)
-{
-	const int eof = size.height - 1;
-	for (int y = 0; y < size.height; y++)
+	if (isdigit(key) && (number || key != '0'))
 	{
-		for (int x = 0; x < size.width; x++)
-			print_letter(screen[y][x]);
-		if (y != eof)
-			putchar('\n');
+		number *= 10;
+		number += key - '0';
+		number = min(number, end.x);
+		return;
 	}
+	if (previous_key) switch (previous_key)
+	{
+		case 'g':
+			if (key == 'g')
+				move(START, 0, ABSOLUTE); DONE;
+		case 'f':
+			find(key, AFTER); DONE;
+		case 'F':
+			find(key, BEFORE); DONE;
+		default:
+			DONE;
+	}
+	switch (key)
+	{
+		case 'w':
+			word(); DONE;
+		case 'W':
+			WORD(); DONE;
+		case 'b':
+			back(); DONE;
+		case 'B':
+			BACK(); DONE;
+		case '|':
+			move(number, STAY, ABSOLUTE); DONE;
+		case '^': 
+			first_non_space(); DONE;
+		case '0': 
+			move(0, STAY, ABSOLUTE); DONE;
+		case '$': 
+			move(end.x, STAY, ABSOLUTE); DONE;
+		case 'H': 
+			move(START, 0, ABSOLUTE); DONE;
+		case 'M': 
+			move(START, end.y/2, ABSOLUTE); DONE;
+		case 'L': case 'G':
+			move(START, end.y, ABSOLUTE); DONE;
+		case 'h': 
+			move(-1, 0, RELATIVE); DONE;
+		case 'j': 
+			move(0, 1, RELATIVE); DONE;
+		case 'k': 
+			move(0, -1, RELATIVE); DONE;
+		case 'l': 
+			move(1, 0, RELATIVE); DONE;
+		case '%': 
+			match_pair(); DONE;
+		default: 
+			previous_key = key;
+			if (isprint(key)) printf("%c\n", key);
+	}
+	number = 0;
 }
 
-#define BEGINNING (y == 0 && x == 0)
-void BACK(int x, int y)
+void setup()
 {
-	const int end_of_line = size.width - 1;
+	char *filename[SOUND_COUNT] = {
+		"sound/block.wav",
+		"sound/delete.wav",
+		"sound/explode.wav",
+		"sound/hurt.wav",
+		"sound/jump.wav",
+		"sound/move.wav",
+		"sound/pickup.wav"
+	};
+	char string[2] = {0, 0};
 
-	while (!BEGINNING && screen[y][x].character != ' ')
-		x == 0 ? x = end_of_line, y-- : x--;
-	while (!BEGINNING && screen[y][x].character == ' ')
-		x == 0 ? x = end_of_line, y-- : x--;
-	while (!BEGINNING && screen[y][x].character != ' ')
-		x == 0 ? x = end_of_line, y-- : x--;
-	//if (!(BEGINNING && screen[0][0].character == ' '))
-		x == end_of_line ? x = 0, y++ : x++;
-	move(x, y);
-}
-
-#define END (y == last_line && x == end_of_line)
-void WORD(int x, int y)
-{
-	const int end_of_line = size.width - 1;
-	const int last_line = size.height - 1;
-
-	while (!END && screen[y][x].character != ' ')
-		x == end_of_line ? x = 0, y++ : x++;
-	while (!END && screen[y][x].character == ' ')
-		x == end_of_line ? x = 0, y++ : x++;
-	move(x, y);
+	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+	TTF_Init();
+	window = SDL_CreateWindow("vimtrix", CENTER, CENTER, width, height, SDL_WINDOW_METAL);
+	screen = SDL_GetWindowSurface(window);
+	font = TTF_OpenFont("JetBrainsMono-Regular.ttf", 16);
+	for (int c = 32; c < 127; c++)
+	{
+		*string = c;
+		letter[c] = TTF_RenderText_Shaded(font, string, white, black);
+		letter_blue[c] = TTF_RenderText_Shaded(font, string, blue, black);
+		inverted[c] = SDL_CreateRGBSurface(0, letter[c]->w, letter[c]->h, 32, 255, 255, 255, 255);
+		inverted[c] = TTF_RenderText_Shaded(font, string, black, white);
+	}
+	for (int i = 0; i < SOUND_COUNT; i++)
+	{
+		SDL_LoadWAV(filename[i], &audio[i], &buffer[i], &length[i]);
+		device[i] = SDL_OpenAudioDevice(NULL, 0, &audio[i], NULL, 0);
+	}
 }
 
 int main()
 {
-	int input;
+	bool is_running = true;
 
-	if (isatty(STDOUT_FILENO))
+	setup();
+	fill();
+	render();
+	while (is_running) 
 	{
-		measure(&size);
-		setup(&screen, size);
-		render(screen, size);
-		move(cursor.x, cursor.y);
-		while (true)
+		if (SDL_PollEvent(&event))
 		{
-			input = getchar();
-			switch (input)
-			{
-				case 'h':
-					move(cursor.x - 1, cursor.y); break;
-				case 'j':
-					move(cursor.x, cursor.y + 1); break;
-				case 'k':
-					move(cursor.x, cursor.y - 1); break;
-				case 'l':
-					move(cursor.x + 1, cursor.y); break;
-				case 'g':
-					if (getchar() == 'g')
-						move(0, 0); break;
-				case 'B':
-					BACK(cursor.x, cursor.y); break;
-				case 'G':
-					move(0, size.height); break;
-				case 'W':
-					WORD(cursor.x, cursor.y); break;
-				default: break;
-			}
+			if (event.type == SDL_QUIT)
+				is_running = false;
+			if (event.type == SDL_TEXTINPUT)
+				handle_key_input(&event);
 		}
+		usleep(1000);
 	}
+	SDL_DestroyWindow(window);
+	SDL_Quit();
 }
