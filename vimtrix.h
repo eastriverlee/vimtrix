@@ -7,6 +7,8 @@
 #include <string.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <time.h>
+#include <pthread.h>
 #include <SDL.h>
 #include <SDL_ttf.h>
 
@@ -59,16 +61,19 @@ extern SDL_Surface *letter[128];
 extern SDL_Surface *letter_blue[128];
 extern SDL_Surface *inverted[128];
 
-extern char cell[256][256];
+extern char **cell;
 extern position cursor;
 extern position end;
 
+void space(short count);
 int min(int a, int b);
 int max(int a, int b);
 int clamp(int minimum, int n, int maximum);
 void play(char sound);
 void word(short count);
 void WORD(short count);
+void word_end(short count);
+void WORD_END(short count);
 void back(short count);
 void BACK(short count);
 void move(short x, short y, bool relative);

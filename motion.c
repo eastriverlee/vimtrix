@@ -36,10 +36,18 @@ bool backward()
 	return (TOP <= cursor.y);
 }
 
+void space(short count)
+{
+	const position original = cursor;
+
+	do forward(); while (0 < --count);
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
+	render();
+}
+
 void skip_spaces(bool (*skip)(void))
 {
-	while (isspace(cell[cursor.y][cursor.x]) && skip())
-		continue;
+	while (isspace(cell[cursor.y][cursor.x]) && skip()) continue;
 	cursor.y = clamp(TOP, cursor.y, end.y);
 }
 
@@ -51,11 +59,9 @@ void word(short count)
 	do
 	{
 		isskippable = isalnum_(cell[cursor.y][cursor.x]) ? isalnum_ : isother;
-		while (isskippable(cell[cursor.y][cursor.x]) && forward())
-			continue;
+		while (isskippable(cell[cursor.y][cursor.x]) && forward()) continue;
 		skip_spaces(forward);
-	}
-	while (0 < --count);
+	} while (0 < --count);
 	cursor.x = clamp(LEFT, cursor.x, end.x);
 	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 	render();
@@ -67,11 +73,55 @@ void WORD(short count)
 
 	do
 	{
-		while (!isspace(cell[cursor.y][cursor.x]) && forward())
-			continue;
+		while (!isspace(cell[cursor.y][cursor.x]) && forward()) continue;
 		skip_spaces(forward);
+	} while (0 < --count);
+	cursor.x = clamp(LEFT, cursor.x, end.x);
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
+	render();
+}
+
+char next(char **cell)
+{
+	short x = cursor.x + 1;
+	short y = cursor.y;
+
+	if (end.x <= x)
+	{
+		x = LEFT;
+		y++;
 	}
-	while (0 < --count);
+	return (end.y < y ? 0 : cell[y][x]);
+}
+
+void word_end(short count)
+{
+	const position original = cursor;
+	int (*isskippable)(int);
+
+	do
+	{
+		forward();
+		skip_spaces(forward);
+		isskippable = isalnum_(cell[cursor.y][cursor.x]) ? isalnum_ : isother;
+		while (isskippable(next(cell)) && forward()) continue;
+	} while (0 < --count);
+	cursor.x = clamp(LEFT, cursor.x, end.x);
+	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
+	render();
+}
+
+void WORD_END(short count)
+{
+	const position original = cursor;
+	int (*isskippable)(int);
+
+	do
+	{
+		forward();
+		skip_spaces(forward);
+		while (!isspace(next(cell)) && forward()) continue;
+	} while (0 < --count);
 	cursor.x = clamp(LEFT, cursor.x, end.x);
 	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 	render();
@@ -89,8 +139,7 @@ void back(short count)
 		while (LEFT <= cursor.x && isskippable(cell[cursor.y][cursor.x]) && backward())
 			continue;
 		forward();
-	}
-	while (0 < --count);
+	} while (0 < --count);
 	cursor.x = clamp(LEFT, cursor.x, end.x);
 	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 	render();
@@ -106,8 +155,7 @@ void BACK(short count)
 		while (LEFT <= cursor.x && !isspace(cell[cursor.y][cursor.x]) && backward())
 			continue;
 		forward();
-	}
-	while (0 < --count);
+	} while (0 < --count);
 	cursor.x = clamp(LEFT, cursor.x, end.x);
 	play(MOVED ? JUMPED ? JUMP : MOVE : BLOCK);
 	render();
