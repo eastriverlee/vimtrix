@@ -6,23 +6,27 @@ const int height = 800;
 
 SDL_Event event;
 SDL_Window *window;
-SDL_Surface *screen;
 SDL_Renderer *renderer;
 
 TTF_Font *font;
-SDL_Color white = {255,255,255};
-SDL_Color body = {200,220,255};
-SDL_Color red = {255,80,220};
-SDL_Color green = {100,255,140};
-SDL_Color blue = {0,220,255};
-SDL_Color black = {10,20,40};
 #define BODY 0
 #define RED 1
 #define GREEN 2
 #define BLUE 3
 #define PLAIN 4
-SDL_Surface *glyph[5][128];
-SDL_Surface *inverted[128];
+#define WHITE 4
+#define BLACK 5
+#define INVERTED 5
+SDL_Color color[6] = {
+ {200,220,255},
+ {255,80,220},
+ {100,255,140},
+ {0,220,255},
+ {255,255,255},
+ {10,20,40},
+};
+SDL_Surface *surface[6][128];
+SDL_Texture *glyph[6][128];
 pthread_t thread;
 pthread_mutex_t mutex;
 
@@ -58,8 +62,8 @@ void *fall(void *null)
 
 void fill()
 {
-	const int x_unit = glyph[BODY][' ']->w;
-	const int y_unit = glyph[BODY][' ']->h;
+	const int x_unit = surface[BODY][' ']->w;
+	const int y_unit = surface[BODY][' ']->h;
 	const int x_lim = width - (padding + x_unit);
 	const int y_lim = height - padding;
 	SDL_Rect origin = {padding, padding};
@@ -88,26 +92,27 @@ void fill()
 #define NEXT(CELL) CELL[y][x < end.x ? x+1 : x]
 void render()
 {
-	const int x_unit = glyph[BODY][' ']->w;
-	const int y_unit = glyph[BODY][' ']->h;
-	SDL_Rect origin = {padding, padding};
+	const int x_unit = surface[BODY][' ']->w;
+	const int y_unit = surface[BODY][' ']->h;
+	SDL_Rect origin = {padding, padding, x_unit, y_unit};
 	short x, y;
-	char character, color = BODY;
+	char c, color = BODY;
 	bool selected;
 
+	SDL_RenderClear(renderer);
 	for (y = 0; y <= end.y; origin.y += y_unit, y++)
 		for (x = 0, origin.x = padding; x <= end.x; origin.x += x_unit, x++)
 		{
 			selected = cursor.x == x && cursor.y == y;
-			character = cell[y][x];
-			if (character == ' ')
+			c = cell[y][x];
+			if (c == ' ')
 				color = NEXT(cell)%4;
 			if (x < 3)
-				SDL_BlitSurface(selected ? inverted[character] : glyph[PLAIN][character], NULL, screen, &origin);
+				SDL_RenderCopy(renderer, glyph[WHITE][c], NULL, &origin);
 			else
-				SDL_BlitSurface(selected ? inverted[character] : glyph[color][character], NULL, screen, &origin);
+				SDL_RenderCopy(renderer, glyph[selected ? INVERTED : color][c], NULL, &origin);
 		}
-	SDL_UpdateWindowSurface(window);
+	SDL_RenderPresent(renderer);
 }
 
 #define NONE -1
@@ -197,6 +202,16 @@ void handle_key_input(SDL_Event *event)
 	pthread_mutex_unlock(&mutex);
 }
 
+void assign_texture(char kind, char c)
+{
+	char text[] = {c, 0};
+
+	if (kind == INVERTED)
+		surface[kind][c] = TTF_RenderText_Shaded(font, text, color[BLACK], color[WHITE]);
+	else
+		surface[kind][c] = TTF_RenderText_Shaded(font, text, color[kind], color[BLACK]);
+	glyph[kind][c] = SDL_CreateTextureFromSurface(renderer, surface[kind][c]);
+}
 
 void setup()
 {
@@ -209,25 +224,18 @@ void setup()
 		"sound/move.wav",
 		"sound/pickup.wav"
 	};
-	char string[2] = {0, 0};
 
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
 	TTF_Init();
-	window = SDL_CreateWindow("vimtrix", CENTER, CENTER, width, height, SDL_WINDOW_METAL);
-	screen = SDL_GetWindowSurface(window);
-	SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, black.r, black.g, black.b));
+	window = SDL_CreateWindow("vimtrix", CENTER, CENTER, width/2, height/2, SDL_WINDOW_METAL | SDL_WINDOW_ALLOW_HIGHDPI);
+	renderer = SDL_CreateRenderer(window, -1, 0);
+	SDL_SetRenderDrawColor(renderer, color[BLACK].r, color[BLACK].g, color[BLACK].b, 255);
 	font = TTF_OpenFont("JetBrainsMono-Regular.ttf", 16);
-	for (int c = ' '; c <= '~'; c++)
-	{
-		*string = c;
-		glyph[PLAIN][c] = TTF_RenderText_Shaded(font, string, white, black);
-		glyph[BODY][c] = TTF_RenderText_Shaded(font, string, body, black);
-		glyph[RED][c] = TTF_RenderText_Shaded(font, string, red, black);
-		glyph[GREEN][c] = TTF_RenderText_Shaded(font, string, green, black);
-		glyph[BLUE][c] = TTF_RenderText_Shaded(font, string, blue, black);
-		inverted[c] = SDL_CreateRGBSurface(0, glyph[PLAIN][c]->w, glyph[PLAIN][c]->h, 32, 255, 255, 255, 255);
-		inverted[c] = TTF_RenderText_Shaded(font, string, black, white);
-	}
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+	SDL_RenderSetLogicalSize(renderer, width, height);
+	for (char c = ' '; c <= '~'; c++)
+		for (char kind = BODY; kind <= INVERTED; kind++)
+			assign_texture(kind, c);
 	for (int i = 0; i < SOUND_COUNT; i++)
 	{
 		SDL_LoadWAV(filename[i], &audio[i], &buffer[i], &length[i]);
